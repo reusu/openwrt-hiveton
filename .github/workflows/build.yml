@@ -30,7 +30,7 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout overlay (apply.sh + files)
         uses: actions/checkout@v4
@@ -102,13 +102,12 @@ jobs:
           sed -i -E 's/^(CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_[^=]*)=y/\1=n/' .config
 
           # ...and enable only our three + ImageBuilder
-          cat >> .config <<'EOF'
-CONFIG_TARGET_MULTI_PROFILE=y
-CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_edgepi_e87n=y
-CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_hiveton_h5000m=y
-CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_hiveton_h5s-te42=y
-CONFIG_IB=y
-EOF
+          printf '%s\n' \
+            CONFIG_TARGET_MULTI_PROFILE=y \
+            CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_edgepi_e87n=y \
+            CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_hiveton_h5000m=y \
+            CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_hiveton_h5s-te42=y \
+            CONFIG_IB=y >> .config
 
           make defconfig
           echo "=== selected devices ==="
