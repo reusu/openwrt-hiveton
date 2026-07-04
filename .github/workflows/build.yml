@@ -50,9 +50,14 @@ jobs:
           set -euo pipefail
           wget -q "https://github.com/openwrt/openwrt/archive/refs/tags/v${TAG}.tar.gz"
           tar xzf "v${TAG}.tar.gz" -C "$HOME/"
-          DIR=$(tar tzf "v${TAG}.tar.gz" | head -1 | cut -d/ -f1)
-          echo "dir=$HOME/$DIR" >> "$GITHUB_OUTPUT"
-          echo "extracted to $HOME/$DIR"
+          # GitHub extracts tag vX.Y.Z to openwrt-X.Y.Z; glob fallback just in case
+          DIR="$HOME/openwrt-${TAG}"
+          if [ ! -d "$DIR" ]; then
+            for d in "$HOME"/openwrt-*/; do DIR="${d%/}"; break; done
+          fi
+          [ -d "$DIR" ] || { echo "extracted dir not found"; exit 1; }
+          echo "dir=$DIR" >> "$GITHUB_OUTPUT"
+          echo "extracted to $DIR"
 
       - name: Switch feeds to GitHub mirrors + update
         working-directory: ${{ steps.src.outputs.dir }}
