@@ -7,18 +7,11 @@ on:
         description: "OpenWrt release tag to build against (without the leading v)"
         required: true
         default: "25.12.5"
-      make_release:
-        description: "Publish the built images as a GitHub Release"
-        type: boolean
-        default: false
   push:
     paths:
       - "files/**"
       - "apply.sh"
       - ".github/workflows/build.yml"
-
-permissions:
-  contents: write
 
 concurrency:
   group: build-${{ github.ref }}
@@ -34,6 +27,17 @@ jobs:
     steps:
       - name: Checkout overlay (apply.sh + files)
         uses: actions/checkout@v4
+
+      - name: Free up disk space (~25 GB)
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /usr/local/share/boost "$AGENT_TOOLSDIRECTORY" \
+            /usr/local/lib/node_modules /usr/share/swift || true
+          sudo apt-get -y purge '^dotnet-.*' '^llvm-.*' '^mysql-.*' \
+            azure-cli google-cloud-cli firefox 2>/dev/null || true
+          sudo apt-get -y autoremove --purge
+          sudo apt-get clean
+          df -h /
 
       - name: Install build dependencies
         run: |
@@ -68,7 +72,7 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: Apply Hiveton/EdgePi overlay
+      - name: Apply Device overlay
         working-directory: ${{ steps.src.outputs.dir }}
         run: |
           set -euo pipefail
@@ -85,28 +89,20 @@ jobs:
           # bump base-files PKG_RELEASE so the build never looks "older"
           sed -i 's/PKG_RELEASE:=$(COMMITCOUNT)/PKG_RELEASE:=99999999/' package/base-files/Makefile
 
-          # seed with the official filogic config (official kernel config + kmods)
+          # seed with the official filogic config; it already carries
+          # CONFIG_IB=y and CONFIG_TARGET_ALL_PROFILES=y
           BASE="https://downloads.openwrt.org/releases/${TAG}/targets/mediatek/filogic/config.buildinfo"
           if ! curl -fSL "$BASE" -o .config; then
             echo "::warning::no config.buildinfo for release ${TAG}, falling back to 25.12-SNAPSHOT"
             curl -fSL "https://downloads.openwrt.org/releases/25.12-SNAPSHOT/targets/mediatek/filogic/config.buildinfo" -o .config
           fi
 
-          # disable every official device...
+          # Disable every official device. Our three are absent from the seed,
+          # so `make defconfig` enables them via their default (y, thanks to
+          # CONFIG_TARGET_ALL_PROFILES=y). Net result: only our three + IB.
           sed -i -E 's/^(CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_[^=]*)=y/\1=n/' .config
 
-          # ...and enable only our three + ImageBuilder
-          printf '%s\n' \
-            CONFIG_TARGET_MULTI_PROFILE=y \
-            CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_edgepi_e87n=y \
-            CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_hiveton_h5000m=y \
-            CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_hiveton_h5s-te42=y \
-            CONFIG_IB=y >> .config
-
           make defconfig
-          echo "=== selected devices ==="
-          grep -E 'CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_(edgepi_e87n|hiveton_h5000m|hiveton_h5s-te42)=y' .config
-          grep -q '^CONFIG_IB=y' .config && echo "ImageBuilder: ON"
 
       - name: Download package sources
         working-directory: ${{ steps.src.outputs.dir }}
@@ -141,15 +137,3 @@ jobs:
           name: hiveton-edgepi-mt7987-${{ env.TAG }}
           path: artifacts/*
           if-no-files-found: error
-
-      - name: Publish Release (optional)
-        if: ${{ github.event.inputs.make_release == 'true' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          REL="v${TAG}-hiveton"
-          gh release create "$REL" artifacts/* \
-            --title "MT7987A firmware ($TAG)" \
-            --notes "Hiveton H5000M / H5S TE-42 + EdgePi E87N, based on OpenWrt $TAG, ImageBuilder included." \
-          || gh release upload "$REL" artifacts/* --clobber
