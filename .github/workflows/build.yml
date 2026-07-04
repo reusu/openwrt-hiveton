@@ -35,17 +35,6 @@ jobs:
       - name: Checkout overlay (apply.sh + files)
         uses: actions/checkout@v4
 
-      - name: Free up disk space (~25 GB)
-        run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
-            /usr/local/share/boost "$AGENT_TOOLSDIRECTORY" \
-            /usr/local/lib/node_modules /usr/share/swift || true
-          sudo apt-get -y purge '^dotnet-.*' '^llvm-.*' '^mysql-.*' \
-            azure-cli google-cloud-cli firefox 2>/dev/null || true
-          sudo apt-get -y autoremove --purge
-          sudo apt-get clean
-          df -h /
-
       - name: Install build dependencies
         run: |
           sudo apt-get update
