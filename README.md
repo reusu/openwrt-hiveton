@@ -8,7 +8,7 @@ Devices added:
 | Device            | compatible          | Notes                                   |
 | ----------------- | ------------------- | --------------------------------------- |
 | Hiveton H5000M    | `hiveton,h5000m`    | MT7987A + MT7992 Wi-Fi, eMMC            |
-| Hiveton H5S TE-42 | `hiveton,h5s-te42`  | H5000M superset: SPI LCD, I2C touch, 5G modem on PCIe1 |
+| Hiveton H5S TE-42 | `hiveton,h5s-te42`  | MT7987A + MT7992 Wi-Fi, eMMC, SPI LCD, I2C touch, 5G modem on PCIe1 |
 | EdgePi E87N       | `edgepi,e87n`       | MT7987A, eMMC, NVMe, factory-EEPROM MAC |
 
 ## How it works

@@ -12,6 +12,10 @@
 #                   stable function names (platform_do_upgrade(), ...), never on
 #                   neighbouring device names or line numbers.
 #
+# It also drops the upstream netgear_eax17 device: its custom NETGEAR FIT recipe
+# has a broken .its in the 25.12.x images build, which aborts the (all-profiles)
+# build. Removed by exact def/TARGET_DEVICES name match, so it is line-agnostic.
+#
 # Usage: ./apply.sh <openwrt-source-root>
 # Idempotent: if already applied (filogic.mk already has hiveton_h5000m) it is a
 # no-op.
@@ -46,14 +50,35 @@ inject_after_case() {
 	echo "  + injected case arm -> $_file  (anchor: ${_marker:-<first case>})"
 }
 
-echo "==> 1/3 copy DTS"
+# Delete `define Device/<dev> ... endef` and its `TARGET_DEVICES += <dev>` line.
+remove_device() {
+	_file="$1"; _dev="$2"
+	if awk -v dev="$_dev" '
+		$0 == "define Device/" dev { skip = 1 }
+		skip && $0 == "TARGET_DEVICES += " dev { skip = 0; removed = 1; next }
+		skip { next }
+		{ print }
+		END { exit (removed ? 0 : 5) }
+	' "$_file" > "$_file.new"; then
+		mv "$_file.new" "$_file"
+		echo "  - removed Device/$_dev"
+	else
+		rm -f "$_file.new"
+		echo "  = Device/$_dev not present, skipped"
+	fi
+}
+
+echo "==> 1/4 copy DTS"
 cp -v "$HERE"/files/dts/*.dts "$MTK/dts/"
 
-echo "==> 2/3 append device recipes to filogic.mk"
+echo "==> 2/4 append device recipes to filogic.mk"
 cat "$HERE/files/filogic-devices.mk" >> "$MTK/image/filogic.mk"
 echo "  + appended edgepi_e87n / hiveton_h5000m / hiveton_h5s-te42"
 
-echo "==> 3/3 inject case arms"
+echo "==> 3/4 remove upstream netgear_eax17 (broken FIT .its in 25.12.x)"
+remove_device "$MTK/image/filogic.mk" 'netgear_eax17'
+
+echo "==> 4/4 inject case arms"
 inject_after_case "$FILO/etc/board.d/02_network"                  'mediatek_setup_interfaces()' "$HERE/files/arms/network"
 inject_after_case "$FILO/lib/upgrade/platform.sh"                 'platform_do_upgrade()'       "$HERE/files/arms/do_upgrade"
 inject_after_case "$FILO/lib/upgrade/platform.sh"                 'platform_check_image()'      "$HERE/files/arms/check_image"
