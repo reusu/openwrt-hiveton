@@ -1,0 +1,7 @@
+	hiveton,h5000m|\
+	hiveton,h5s-te42|\
+	edgepi,e87n)
+		CI_KERNPART="kernel"
+		CI_ROOTPART="rootfs"
+		emmc_do_upgrade "$1"
+		;;

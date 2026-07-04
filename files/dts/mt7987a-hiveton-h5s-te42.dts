@@ -1,0 +1,384 @@
+// SPDX-License-Identifier: (GPL-2.0 OR MIT)
+/*
+ * Copyright (C) 2026 Reusu <admin@yumao.name>
+ *
+ * Hiveton H5S (board TE-42) - MediaTek MT7987A 5G micro-CPE
+ *
+ * The base hardware is identical to the Hiveton H5000M, so this file is a
+ * superset of mt7987a-hiveton-h5000m.dts. On top of that base it adds the
+ * peripheral buses that are wired on the TE-42 carrier but missing from the
+ * H5000M device tree:
+ *
+ *   - SPI1  -> NFC                                         exposed as spidev
+ *   - SPI2  -> LCD                                         exposed as spidev
+ *   - I2C0  -> Touch Panel                                 exposed via i2c-dev
+ *   - PCIe1 -> 5G modem                                    (port 1 / lane 1)
+ *
+ * The SPI/I2C buses are driven from user space (spidev / i2c-dev). The discrete
+ * control lines that go alongside those buses are not bus signals, so they are
+ * handed to user space through gpio-export (they show up in /sys/class/gpio
+ * and are logged at boot). Signal -> SoC pin -> GPIO mapping, taken from the
+ * TE-42 schematic (connector CN1) and MT7987A datasheet Table 3-2:
+ *
+ *   SPI / LCD auxiliary GPIO:
+ *     lcd-dc   = GPIO11  (PCM_FS_I2S_LRCK,  CN1 pin 12)  data/command select
+ *     lcd-res  = GPIO10  (PCM_CLK_I2S_BCLK, CN1 pin 14)  panel reset, active low
+ *     lcd-blk  = GPIO12  (PCM_MCK_I2S_MCLK, CN1 pin 13)  backlight enable
+ *
+ *   I2C / touch auxiliary GPIO:
+ *     touch-int = GPIO8  (PCM_DTX_I2S_DOUT, CN1 pin 15)  touch interrupt, in
+ *     touch-res = GPIO9  (PCM_DRX_I2S_DIN,  CN1 pin 16)  touch reset, active low
+ *
+ * These five pads default to GPIO mode on MT7987A, so no extra pinmux is
+ * required to use them as GPIO.
+ */
+
+/dts-v1/;
+#include "mt7987a.dtsi"
+#include <dt-bindings/input/input.h>
+
+/ {
+	model = "Hiveton H5S TE-42";
+	compatible = "hiveton,h5s-te42", "mediatek,mt7987a", "mediatek,mt7987";
+
+	aliases {
+		led-boot = &led_status;
+		led-failsafe = &led_status;
+		led-upgrade = &led_status;
+		serial0 = &uart0;
+	};
+
+	chosen {
+		bootargs = "console=ttyS0,115200n8 \
+			earlycon=uart8250,mmio32,0x11000000 \
+			pci=pcie_bus_perf \
+			root=PARTLABEL=rootfs rootwait \
+			rootfstype=squashfs,f2fs";
+		stdout-path = "serial0:115200n8";
+	};
+
+	gpio-keys {
+		compatible = "gpio-keys";
+
+		button-reset {
+			label = "reset";
+			linux,code = <KEY_RESTART>;
+			gpios = <&pio 1 GPIO_ACTIVE_LOW>;
+			debounce-interval = <10>;
+		};
+
+		button-wps {
+			label = "wps";
+			linux,code = <KEY_WPS_BUTTON>;
+			gpios = <&pio 0 GPIO_ACTIVE_LOW>;
+			debounce-interval = <10>;
+		};
+	};
+
+	/*
+	 * LED Indicator Layout
+	 * -------------------
+	 * Total of 5 LED indicators, viewed from front with antenna facing up (left to right):
+	 *
+	 * LED 1: 5G Module indicator
+	 * LED 2: Built-in 2.5G Ethernet port indicator
+	 * LED 3: User-definable (configurable in system)
+	 * LED 4: User-definable (configurable in system)
+	 * LED 5: Power indicator
+	 *
+	 * Note:
+	 * - LEDs 1, 2, and 5 are hardware-controlled and cannot be modified via software
+	 * - In vendor firmware, LEDs 3 and 4 are used as WiFi link activity indicators
+	 *   for dual-band (2.4GHz/5GHz) respectively
+	 */
+	leds {
+		compatible = "gpio-leds";
+
+		led_status: led-3 {
+			function = LED_FUNCTION_WLAN_2GHZ;
+			color = <LED_COLOR_ID_AMBER>;
+			gpios = <&pio 3 GPIO_ACTIVE_LOW>;
+			linux,default-trigger = "phy0tpt";
+		};
+
+		led-4 {
+			function = LED_FUNCTION_WLAN_5GHZ;
+			color = <LED_COLOR_ID_BLUE>;
+			gpios = <&pio 4 GPIO_ACTIVE_LOW>;
+			linux,default-trigger = "phy1tpt";
+		};
+	};
+
+	reg_3p3v: regulator-3p3v {
+		compatible = "regulator-fixed";
+		regulator-name = "fixed-3.3V";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		regulator-boot-on;
+		regulator-always-on;
+	};
+
+	reg_usb_5v: regulator-usb-5v {
+		compatible = "regulator-fixed";
+		regulator-name = "usb-5v";
+		regulator-max-microvolt = <5000000>;
+		regulator-min-microvolt = <5000000>;
+		regulator-boot-on;
+		regulator-always-on;
+	};
+
+	/*
+	 * Auxiliary control lines for the user-space SPI/I2C peripherals.
+	 * Exported to /sys/class/gpio so the LCD and touch user-space drivers
+	 * can toggle them directly.
+	 */
+	gpio-export {
+		compatible = "gpio-export";
+		#size-cells = <0>;
+
+		/* SPI2 / LCD control lines */
+		lcd-dc {
+			gpio-export,name = "lcd-dc";	/* GPIO11, PCM_FS_I2S_LRCK,  CN1 pin 12 */
+			gpio-export,output = <0>;
+			gpios = <&pio 11 GPIO_ACTIVE_HIGH>;
+		};
+
+		lcd-res {
+			gpio-export,name = "lcd-res";	/* GPIO10, PCM_CLK_I2S_BCLK, CN1 pin 14 (active low) */
+			gpio-export,output = <1>;
+			gpios = <&pio 10 GPIO_ACTIVE_HIGH>;
+		};
+
+		lcd-blk {
+			gpio-export,name = "lcd-blk";	/* GPIO12, PCM_MCK_I2S_MCLK, CN1 pin 13 (backlight) */
+			gpio-export,output = <0>;
+			gpios = <&pio 12 GPIO_ACTIVE_HIGH>;
+		};
+
+		/* I2C0 / capacitive touch control lines */
+		touch-int {
+			gpio-export,name = "touch-int";	/* GPIO8, PCM_DTX_I2S_DOUT, CN1 pin 15 */
+			gpio-export,input;
+			gpios = <&pio 8 GPIO_ACTIVE_HIGH>;
+		};
+
+		touch-res {
+			gpio-export,name = "touch-res";	/* GPIO9, PCM_DRX_I2S_DIN, CN1 pin 16 (active low) */
+			gpio-export,output = <1>;
+			gpios = <&pio 9 GPIO_ACTIVE_HIGH>;
+		};
+	};
+};
+
+&fan {
+	pwms = <&pwm 1 50000 0>;
+	status = "okay";
+};
+
+&pio {
+	pcie0_pins: pcie0-pins {
+		mux {
+			function = "pcie";
+			groups = "pcie0_pereset", "pcie0_clkreq";
+		};
+	};
+
+	/* LCD on SPI2: only CLK/MOSI/MISO/CS are wired (no WP/HOLD on TE-42) */
+	spi2_lcd_pins: spi2-lcd-pins {
+		mux {
+			function = "spi";
+			groups = "spi2";
+		};
+	};
+
+	pwm_fan_pins: pwm-fan-pins {
+		mux {
+			function = "pwm";
+			groups = "pwm1_0";
+		};
+	};
+};
+
+&pwm {
+	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&pwm_fan_pins>;
+};
+
+&uart0 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart0_pins>;
+	status = "okay";
+};
+
+/*
+ * I2C0 -> capacitive touch panel (CM_SCL/CM_SDA on the SoC's dedicated
+ * I2C_SCLK = GPIO43 / I2C_SDATA = GPIO44 pins). No child device is declared
+ * on purpose: the bus is handed to user space via i2c-dev (/dev/i2c-X), and
+ * the touch INT/RES lines are exported through gpio-export above.
+ */
+&i2c0 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&i2c0_pins>;
+	status = "okay";
+};
+
+/* SPI1 disabled: its pads (SPI1_CLK/MOSI/MISO/CS) are reused by the 8-bit
+ * eMMC (group "emmc_45") that holds rootfs. Enabling SPI1 steals those pads,
+ * eMMC fails to init, and boot hangs on "Waiting for root device".
+ * Hardware pad conflict — eMMC wins, so NFC/SPI1 can't be used here.
+ */
+&spi1 {
+	status = "disabled";
+};
+
+/*
+ * SPI2 -> 1.14" TFT LCD (135x240). Exposed as a raw spidev; the LCD
+ * DC/RES/BLK control lines are exported through gpio-export above.
+ */
+&spi2 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&spi2_lcd_pins>;
+	#address-cells = <1>;
+	#size-cells = <0>;
+	status = "okay";
+
+	spidev@0 {
+		compatible = "rohm,dh2228fv";	/* spidev placeholder for user-space LCD driver */
+		reg = <0>;
+		spi-max-frequency = <40000000>;
+	};
+};
+
+&tphyu3port0 {
+	status = "okay";
+};
+
+&ssusb {
+	vusb33-supply = <&reg_3p3v>;
+	vbus-supply = <&reg_usb_5v>;
+	status = "okay";
+};
+
+&mmc0 {
+	pinctrl-names = "default", "state_uhs";
+	pinctrl-0 = <&mmc_pins_default>;
+	pinctrl-1 = <&mmc_pins_uhs>;
+	bus-width = <8>;
+	max-frequency = <48000000>;
+	cap-mmc-highspeed;
+	vmmc-supply = <&reg_3p3v>;
+	non-removable;
+	status = "okay";
+
+	card@0 {
+		compatible = "mmc-card";
+		reg = <0>;
+
+		block {
+			compatible = "block-device";
+
+			partitions {
+				block-partition-factory {
+					partname = "factory";
+
+					nvmem-layout {
+						compatible = "fixed-layout";
+						#address-cells = <1>;
+						#size-cells = <1>;
+
+						eeprom_factory_0: eeprom@0 {
+							reg = <0x0 0x1000>;
+						};
+					};
+				};
+			};
+		};
+	};
+};
+
+&pcie0 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pcie0_pins>;
+	status = "okay";
+
+	pcie@0,0 {
+		reg = <0x0000 0 0 0 0>;
+		device_type = "pci";
+		#address-cells = <3>;
+		#size-cells = <2>;
+
+		mt7992@0,0 {
+			compatible = "mediatek,mt76";
+			reg = <0x0000 0 0 0 0>;
+
+			nvmem-cells = <&eeprom_factory_0>;
+			nvmem-cell-names = "eeprom";
+
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			ieee80211-freq-limit = <2400000 2500000>,
+			                       <5170000 5835000>;
+		};
+	};
+};
+
+/*
+ * PCIe1 -> 5G modem.
+ * On TE-42 the modem is wired to the MT7987 PCIe lane 1 / port 1:
+ *   - data:  PCIE_2L_0_LN1_TX/RX  (AC-coupled to the modem's RX/TX)
+ *   - clock: CKM_PE2_PT1          (reference clock to the modem)
+ *   - ctrl:  PCIE_PERESET_N_1 = GPIO36
+ *            PCIE_CLK_REQ_1   = GPIO37
+ *            PCIE_WAKE_N_1    = GPIO38
+ * pcie1_pins muxes those three control pads to the PCIe function, so PERESET
+ * is driven by the controller. The modem enumerates as a standard PCIe/MHI
+ * endpoint, so no child node is required.
+ */
+&pcie1 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pcie1_pins>;
+	num-lanes = <1>;
+	status = "okay";
+};
+
+&eth {
+	status = "okay";
+};
+
+&gmac0 {
+	phy-mode = "2500base-x";
+	phy-handle = <&phy0>;
+	status = "okay";
+};
+
+&gmac1 {
+	phy-mode = "internal";
+	phy-handle = <&phy1>;
+	status = "okay";
+};
+
+&mdio {
+	/* RTL8221B-VB-CG 2.5Gbps PHY (away from power) eth0 */
+	phy0: phy@1 {
+		compatible = "ethernet-phy-ieee802.3-c45";
+		reg = <1>;
+		reset-gpios = <&pio 42 GPIO_ACTIVE_LOW>;
+		reset-assert-us = <100000>;
+		reset-deassert-us = <100000>;
+		interrupt-parent = <&pio>;
+		interrupts = <41 IRQ_TYPE_LEVEL_LOW>;
+		eee-broken-100tx;
+		eee-broken-1000t;
+		realtek,aldps-enable;
+	};
+
+	/* built-in 2.5G Ethernet PHY (near power) eth1 */
+	phy1: phy@15 {
+		compatible = "ethernet-phy-ieee802.3-c45";
+		reg = <15>;
+		pinctrl-names = "i2p5gbe-led";
+		pinctrl-0 = <&i2p5gbe_led0_pins>;
+	};
+};

@@ -1,0 +1,5 @@
+/artifacts/
+*.tar.gz
+*.tmp
+*.new
+.DS_Store

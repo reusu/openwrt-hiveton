@@ -1,0 +1,242 @@
+// SPDX-License-Identifier: (GPL-2.0 OR MIT)
+/*
+ * Copyright (C) 2026 Reusu <admin@yumao.name>
+ */
+
+/dts-v1/;
+
+#include "mt7987a.dtsi"
+#include <dt-bindings/input/input.h>
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/leds/common.h>
+#include <dt-bindings/pinctrl/mt65xx.h>
+#include <dt-bindings/phy/phy.h>
+
+/ {
+	model = "EdgePi E87N";
+	compatible = "edgepi,e87n", "mediatek,mt7987a", "mediatek,mt7987";
+
+	chosen {
+		bootargs = "console=ttyS0,115200n8 \
+			earlycon=uart8250,mmio32,0x11000000 \
+			pci=pcie_bus_perf \
+			root=PARTLABEL=rootfs rootwait \
+			rootfstype=squashfs,f2fs";
+		stdout-path = "serial0:115200n8";
+	};
+
+	gpio-keys {
+		compatible = "gpio-keys";
+
+		reset {
+			label = "reset";
+			linux,code = <KEY_RESTART>;
+			gpios = <&pio 1 GPIO_ACTIVE_LOW>;
+			debounce-interval = <10>;
+		};
+
+		wps {
+			label = "wps";
+			linux,code = <KEY_WPS_BUTTON>;
+			gpios = <&pio 0 GPIO_ACTIVE_LOW>;
+			debounce-interval = <10>;
+		};
+	};
+
+	gpio-leds {
+		compatible = "gpio-leds";
+
+		led-sys {
+			gpios = <&pio 4 GPIO_ACTIVE_LOW>;
+			color = <LED_COLOR_ID_BLUE>;
+			function = LED_FUNCTION_POWER;
+		};
+
+		led-status {
+			gpios = <&pio 3 GPIO_ACTIVE_LOW>;
+			color = <LED_COLOR_ID_BLUE>;
+			function = LED_FUNCTION_STATUS;
+		};
+	};
+
+	reg_3p3v: regulator-3p3v {
+		compatible = "regulator-fixed";
+		regulator-name = "fixed-3.3V";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		regulator-boot-on;
+		regulator-always-on;
+	};
+};
+
+&fan {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pwm_fan_pins>;
+	cooling-levels = <60 120 180 255>;
+	pwms = <&pwm 1 50000 0>;
+	status = "okay";
+};
+
+&pio {
+	pwm_fan_pins: pwm-fan-pins {
+		mux {
+			function = "pwm";
+			groups = "pwm1_0";
+		};
+	};
+
+	pcie0_pins: pcie0-pins {
+		mux {
+			function = "pcie";
+			groups = "pcie0_pereset", "pcie0_clkreq";
+		};
+	};
+
+	pcie1_pins: pcie1-pins {
+		mux {
+			function = "pcie";
+			groups = "pcie1_pereset", "pcie1_clkreq",
+					 "pcie1_wake";
+		};
+	};
+};
+
+&pwm {
+	status = "okay";
+};
+
+&uart0 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart0_pins>;
+	status = "okay";
+};
+
+&i2c0 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&i2c0_pins>;
+	status = "okay";
+};
+
+&spi2 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&spi2_flash_pins>;
+	status = "okay";
+
+	spidev@0 {
+		compatible = "rohm,dh2228fv";
+		reg = <0>;
+		spi-max-frequency = <40000000>;
+	};
+};
+
+&tphyu3port0 {
+	status = "okay";
+};
+
+&ssusb {
+	mediatek,u3p-dis-msk = <0>;
+	phys = <&tphyu2port0 PHY_TYPE_USB2>,
+		   <&tphyu3port0 PHY_TYPE_USB3>;
+	status = "okay";
+};
+
+&mmc0 {
+	pinctrl-names = "default", "state_uhs";
+	pinctrl-0 = <&mmc_pins_default>;
+	pinctrl-1 = <&mmc_pins_uhs>;
+	bus-width = <8>;
+	max-frequency = <48000000>;
+	cap-mmc-highspeed;
+	vmmc-supply = <&reg_3p3v>;
+	non-removable;
+	status = "okay";
+
+	card@0 {
+		compatible = "mmc-card";
+		reg = <0>;
+
+		block {
+			compatible = "block-device";
+
+			partitions {
+				block-partition-factory {
+					partname = "factory";
+
+					nvmem-layout {
+						compatible = "fixed-layout";
+						#address-cells = <1>;
+						#size-cells = <1>;
+
+						eeprom_factory_0: eeprom@0 {
+							reg = <0x0 0x1000>;
+						};
+
+						macaddr_factory_24: macaddr@24 {
+							compatible = "mac-base";
+							reg = <0x24 0x6>;
+							#nvmem-cell-cells = <1>;
+						};
+
+						macaddr_factory_2a: macaddr@2a {
+							compatible = "mac-base";
+							reg = <0x2a 0x6>;
+							#nvmem-cell-cells = <1>;
+						};
+					};
+				};
+			};
+		};
+	};
+};
+
+&pcie0 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pcie0_pins>;
+	num-lanes = <1>;
+	status = "okay";
+};
+
+&pcie1 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pcie1_pins>;
+	num-lanes = <1>;
+	status = "okay";
+};
+
+&eth {
+	status = "okay";
+};
+
+&gmac0 {
+	phy-mode = "2500base-x";
+	phy-handle = <&phy0>;
+	status = "okay";
+};
+
+&gmac1 {
+	phy-mode = "internal";
+	phy-handle = <&phy1>;
+	status = "okay";
+};
+
+&mdio {
+	phy0: phy@3 {
+		compatible = "ethernet-phy-ieee802.3-c45";
+		reg = <3>;
+		reset-gpios = <&pio 42 GPIO_ACTIVE_LOW>;
+		reset-assert-us = <100000>;
+		reset-deassert-us = <100000>;
+		interrupt-parent = <&pio>;
+		interrupts = <41 IRQ_TYPE_LEVEL_LOW>;
+		eee-broken-100tx;
+		eee-broken-1000t;
+		realtek,aldps-enable;
+	};
+
+	phy1: phy@15 {
+		compatible = "ethernet-phy-ieee802.3-c45";
+		reg = <15>;
+		pinctrl-names = "i2p5gbe-led";
+		pinctrl-0 = <&i2p5gbe_led0_pins>;
+	};
+};

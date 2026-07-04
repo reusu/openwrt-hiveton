@@ -1,0 +1,5 @@
+	hiveton,h5000m|\
+	hiveton,h5s-te42|\
+	edgepi,e87n)
+		ucidef_set_interfaces_lan_wan eth1 eth0
+		;;
