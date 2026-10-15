@@ -1,0 +1,39 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/sound/hiveton,te43-modem-audio.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Hiveton H5S TE43 digital modem audio link
+
+maintainers:
+  - Reusu <admin@yumao.name>
+
+description: |
+  Four-wire PCM link between the MT7987 AFE and the M.2 modem, through
+  a 3.3 V to 1.8 V level converter. The board uses the RM500Q-GL default
+  short-frame profile: mono 16-bit linear samples at 8 kHz, 2.048 MHz
+  bit clock, with MT7987 providing both clocks. Data changes on rising
+  BCLK edges and is sampled on falling edges. The modem's AT interface
+  and the CH585M manage modem configuration and power independently.
+
+properties:
+  compatible:
+    const: hiveton,te43-modem-audio
+
+  mediatek,audio-platform:
+    $ref: /schemas/types.yaml#/definitions/phandle
+    description: MT7987 AFE providing the DL1, UL1 and ETDM DAIs.
+
+required:
+  - compatible
+  - mediatek,audio-platform
+
+additionalProperties: false
+
+examples:
+  - |
+    sound {
+        compatible = "hiveton,te43-modem-audio";
+        mediatek,audio-platform = <&afe>;
+    };

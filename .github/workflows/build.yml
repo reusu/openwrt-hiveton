@@ -77,10 +77,13 @@ jobs:
         run: |
           set -euo pipefail
           "$GITHUB_WORKSPACE/apply.sh" .
-          # sanity check: the three DTS are in place
+          # sanity check: the four DTS are in place
           ls -1 target/linux/mediatek/dts/mt7987a-edgepi-e87n.dts \
                  target/linux/mediatek/dts/mt7987a-hiveton-h5000m.dts \
-                 target/linux/mediatek/dts/mt7987a-hiveton-h5s-te42.dts
+                 target/linux/mediatek/dts/mt7987a-hiveton-h5s-te42.dts \
+                 target/linux/mediatek/dts/mt7987a-hiveton-h5s-te43.dts
+          test -f package/kernel/te43-modem-audio/src/mt7987-afe-pcm.c
+          test -f package/kernel/te43-modem-audio/src/te43-modem.c
 
       - name: Generate .config
         working-directory: ${{ steps.src.outputs.dir }}
@@ -97,9 +100,9 @@ jobs:
             curl -fSL "https://downloads.openwrt.org/releases/25.12-SNAPSHOT/targets/mediatek/filogic/config.buildinfo" -o .config
           fi
 
-          # Disable every official device. Our three are absent from the seed,
+          # Disable every official device. Our four are absent from the seed,
           # so `make defconfig` enables them via their default (y, thanks to
-          # CONFIG_TARGET_ALL_PROFILES=y). Net result: only our three + IB.
+          # CONFIG_TARGET_ALL_PROFILES=y). Net result: only our four + IB.
           sed -i -E 's/^(CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_[^=]*)=y/\1=n/' .config
 
           make defconfig

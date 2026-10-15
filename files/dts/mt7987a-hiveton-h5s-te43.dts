@@ -1,0 +1,361 @@
+// SPDX-License-Identifier: (GPL-2.0 OR MIT)
+/*
+ * Copyright (C) 2026 Reusu <admin@yumao.name>
+ *
+ * TE-43 vertical MiFi, using the same Hiveton H5S core as TE-42.
+ * Carrier wiring: TE-43 schematics exported on 2026-10-15.
+ * eMMC, Wi-Fi calibration and Ethernet settings follow the validated TE-42.
+ *
+ * USB3 -> CH634M hub: ports 1/2 = Type-A, port 3 = M.2 modem,
+ *                    port 4 = CH585M (USB2 only).
+ * PCIe0 -> on-module MT7992; PCIe1 -> M.2 modem, one lane.
+ * I2C0 -> CH585M software I2C interface (MI2C_SCL / MI2C_SDA).
+ * SPI2 -> CH585M SPI0; host CS is observed through MCU-owned AW9523 P0.2.
+ * PCM -> M.2 modem through U11 (3.3 V / 1.8 V level conversion).
+ * UART0 remains the console; it is also connected to the CH585M.
+ *
+ * The CH585M owns the LCD, touch, NFC, battery/charger and both AW9523s.
+ * The communications-board AW9523 controls modem power/reset, USB power,
+ * fan power and core power. These are not MT7987 GPIOs or I2C0 devices.
+ * The MCU must enable the respective supplies before Linux uses them.
+ */
+
+/dts-v1/;
+#include "mt7987a.dtsi"
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/input/input.h>
+#include <dt-bindings/leds/common.h>
+
+/ {
+	model = "Hiveton H5S TE-43";
+	compatible = "hiveton,h5s-te43", "mediatek,mt7987a", "mediatek,mt7987";
+
+	aliases {
+		i2c0 = &i2c0;
+		led-boot = &led_status;
+		led-failsafe = &led_status;
+		led-upgrade = &led_status;
+		serial0 = &uart0;
+		spi2 = &spi2;
+	};
+
+	chosen {
+		bootargs = "console=ttyS0,115200n8 \
+			earlycon=uart8250,mmio32,0x11000000 \
+			pci=pcie_bus_perf \
+			root=PARTLABEL=rootfs rootwait \
+			rootfstype=squashfs,f2fs";
+		stdout-path = "serial0:115200n8";
+	};
+
+	gpio-keys {
+		compatible = "gpio-keys";
+
+		/* CN1.53 / GRESET: SW2 and MCU-controlled AW9523 P0.1. */
+		button-reset {
+			label = "reset";
+			linux,code = <KEY_RESTART>;
+			gpios = <&pio 1 GPIO_ACTIVE_LOW>;
+			debounce-interval = <10>;
+		};
+		/* CN1.54 / GPIO0 (WPS) is not connected on TE-43. */
+	};
+
+	leds {
+		compatible = "gpio-leds";
+
+		/* APP_LED1 / CN1.30 -> RJ3.10 anode; RJ3.9 -> R9 -> GND. */
+		led-lan {
+			function = LED_FUNCTION_LAN;
+			gpios = <&pio 3 GPIO_ACTIVE_HIGH>;
+			default-state = "off";
+		};
+
+		/* APP_LED2 / CN1.25 -> blue LED5 cathode, pulled up via R62. */
+		led_status: led-status {
+			function = LED_FUNCTION_STATUS;
+			color = <LED_COLOR_ID_BLUE>;
+			gpios = <&pio 4 GPIO_ACTIVE_LOW>;
+		};
+	};
+
+	reg_3p3v: regulator-3p3v {
+		compatible = "regulator-fixed";
+		regulator-name = "fixed-3.3V";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		regulator-boot-on;
+		regulator-always-on;
+	};
+
+	/* USB+5V: U8, enabled by MCU-owned AW9523 P1.5 / DCUSEN. */
+	reg_usb_5v: regulator-usb-5v {
+		compatible = "regulator-fixed";
+		regulator-name = "usb-5v";
+		regulator-min-microvolt = <5000000>;
+		regulator-max-microvolt = <5000000>;
+		regulator-boot-on;
+		regulator-always-on;
+	};
+
+	/*
+	 * RM500Q reference profile for the interchangeable M.2 modem:
+	 * MT7987 supplies BCLK/FS; mono S16_LE, 8 kHz, DSP_A short frame,
+	 * inverted BCLK (data changes on rising edges), 256 clocks/frame.
+	 * The te43-modem-audio package supplies this board's ASoC driver.
+	 */
+	sound {
+		compatible = "hiveton,te43-modem-audio";
+		mediatek,audio-platform = <&afe>;
+	};
+};
+
+/* PWM1 / GPIO7 -> CN2.4; GPIO6 / FAN_FR <- CN2.3. */
+&fan {
+	pinctrl-names = "default";
+	pinctrl-0 = <&fan_tach_pins>;
+	/* mt7987.dtsi uses two PWM cells: channel and period (20 kHz). */
+	pwms = <&pwm 1 50000>;
+	interrupt-parent = <&pio>;
+	interrupts = <6 IRQ_TYPE_EDGE_FALLING>;
+	/* Standard four-wire fan; confirm the pulse count for the fitted fan. */
+	pulses-per-revolution = <2>;
+	status = "okay";
+};
+
+&pio {
+	pcie0_pins: pcie0-pins {
+		mux {
+			function = "pcie";
+			groups = "pcie0_pereset", "pcie0_clkreq";
+		};
+	};
+
+	/* GPIO25..28; GPIO29/30 (WP/HOLD) are only test points. */
+	spi2_mcu_pins: spi2-mcu-pins {
+		mux {
+			function = "spi";
+			groups = "spi2";
+		};
+	};
+
+	/* MT7987 pinctrl uses function "audio", group "pcm", GPIO8..11. */
+	pcm_modem_pins: pcm-modem-pins {
+		mux {
+			function = "audio";
+			groups = "pcm";
+		};
+	};
+
+	pwm_fan_pins: pwm-fan-pins {
+		mux {
+			function = "pwm";
+			groups = "pwm1_0";
+		};
+	};
+
+	fan_tach_pins: fan-tach-pins {
+		conf {
+			pins = "JTAG_JTCLK";
+			input-enable;
+			bias-pull-up;
+		};
+	};
+};
+
+&pwm {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pwm_fan_pins>;
+	status = "okay";
+};
+
+&uart0 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart0_pins>;
+	status = "okay";
+};
+
+/*
+ * CN1.34/33 (GPIO43/44) -> FPC1.11/10 -> CH585M PA4/PA5.
+ * Available through i2c-dev. The MCU address/protocol belongs to its
+ * firmware, so no speculative I2C child device is declared here.
+ */
+&i2c0 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&i2c0_pins>;
+	clock-frequency = <100000>;
+	status = "okay";
+};
+
+/* SPI0/SPI1 pads are occupied by the core's eight-bit eMMC. */
+&spi0 {
+	status = "disabled";
+};
+
+&spi1 {
+	status = "disabled";
+};
+
+/*
+ * MT7987 is the SPI host; CH585M SPI0 is the peripheral. Native CS reaches
+ * MCU-owned AW9523 P0.2, which the MCU must configure as an input. CH585M's
+ * hardware SCS pin is NC, so its firmware must handle transaction framing.
+ * LCD remains on the MCU's separate SPI1 bus.
+ */
+&spi2 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&spi2_mcu_pins>;
+	#address-cells = <1>;
+	#size-cells = <0>;
+	status = "okay";
+
+	spidev@0 {
+		/* Same spidev binding convention as TE-42; actual peer is CH585M. */
+		compatible = "rohm,dh2228fv";
+		reg = <0>;
+		/* Initial bring-up limit; increase after validating MCU firmware. */
+		spi-max-frequency = <1000000>;
+	};
+};
+
+/*
+ * GPIO8 = TX -> modem pin 22; GPIO9 = RX <- modem pin 24;
+ * GPIO10 = BCLK -> pin 20; GPIO11 = SYNC -> pin 28.
+ * Use the RM500Q-GL default: modem consumes clock/sync, 8 kHz frames,
+ * 16-bit data, 2.048 MHz BCLK. Other fitted modems must be configured to
+ * this same profile; their compatibility is a board design assumption.
+ * GPIO12 / MCLK is only a test point and is not part of this PCM group.
+ */
+&afe {
+	/* Bind the standalone driver; the stock MT7986 driver must not bind. */
+	compatible = "hiveton,te43-mt7987-afe", "mediatek,mt7987-afe";
+	pinctrl-names = "default";
+	pinctrl-0 = <&pcm_modem_pins>;
+	status = "okay";
+};
+
+&tphyu3port0 {
+	status = "okay";
+};
+
+/* CH634M, modem and MCU enumerate over USB; no invented USB IDs. */
+&ssusb {
+	vusb33-supply = <&reg_3p3v>;
+	vbus-supply = <&reg_usb_5v>;
+	status = "okay";
+};
+
+&mmc0 {
+	pinctrl-names = "default", "state_uhs";
+	pinctrl-0 = <&mmc_pins_default>;
+	pinctrl-1 = <&mmc_pins_uhs>;
+	bus-width = <8>;
+	max-frequency = <48000000>;
+	cap-mmc-highspeed;
+	vmmc-supply = <&reg_3p3v>;
+	non-removable;
+	status = "okay";
+
+	card@0 {
+		compatible = "mmc-card";
+		reg = <0>;
+
+		block {
+			compatible = "block-device";
+
+			partitions {
+				block-partition-factory {
+					partname = "factory";
+
+					nvmem-layout {
+						compatible = "fixed-layout";
+						#address-cells = <1>;
+						#size-cells = <1>;
+
+						eeprom_factory_0: eeprom@0 {
+							reg = <0x0 0x1000>;
+						};
+					};
+				};
+			};
+		};
+	};
+};
+
+&pcie0 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pcie0_pins>;
+	status = "okay";
+
+	pcie@0,0 {
+		reg = <0x0000 0 0 0 0>;
+		device_type = "pci";
+		#address-cells = <3>;
+		#size-cells = <2>;
+
+		mt7992@0,0 {
+			compatible = "mediatek,mt76";
+			reg = <0x0000 0 0 0 0>;
+			nvmem-cells = <&eeprom_factory_0>;
+			nvmem-cell-names = "eeprom";
+			#address-cells = <1>;
+			#size-cells = <0>;
+			ieee80211-freq-limit = <2400000 2500000>,
+					       <5170000 5835000>;
+		};
+	};
+};
+
+/*
+ * M.2 PCIe: PERST#/CLKREQ#/WAKE# = GPIO36/37/38, as on TE-42.
+ * Enabled alongside USB for endpoint-capable modules such as RM520N.
+ * The MT5700M-CN guide only documents RC mode; enabling this host port
+ * does not establish EP support or a driver for that particular module.
+ */
+&pcie1 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pcie1_pins>;
+	num-lanes = <1>;
+	status = "okay";
+};
+
+&eth {
+	status = "okay";
+};
+
+/* RJ4: external RTL8221B, strapped to MDIO address 1. */
+&gmac0 {
+	phy-mode = "2500base-x";
+	phy-handle = <&phy0>;
+	status = "okay";
+};
+
+/* RJ3: MT7987 internal 2.5GbE PHY. */
+&gmac1 {
+	phy-mode = "internal";
+	phy-handle = <&phy1>;
+	status = "okay";
+};
+
+&mdio {
+	phy0: phy@1 {
+		compatible = "ethernet-phy-ieee802.3-c45";
+		reg = <1>;
+		reset-gpios = <&pio 42 GPIO_ACTIVE_LOW>;
+		reset-assert-us = <100000>;
+		reset-deassert-us = <100000>;
+		interrupt-parent = <&pio>;
+		interrupts = <41 IRQ_TYPE_LEVEL_LOW>;
+		/* Preserve TE-42's RTL8221B EEE workaround on eth0 / RJ4. */
+		eee-broken-100tx;
+		eee-broken-1000t;
+		realtek,aldps-enable;
+	};
+
+	phy1: phy@15 {
+		compatible = "ethernet-phy-ieee802.3-c45";
+		reg = <15>;
+		pinctrl-names = "i2p5gbe-led";
+		pinctrl-0 = <&i2p5gbe_led0_pins>;
+	};
+};

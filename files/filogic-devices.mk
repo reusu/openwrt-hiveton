@@ -34,3 +34,20 @@ define Device/hiveton_h5s-te42
   IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
 endef
 TARGET_DEVICES += hiveton_h5s-te42
+
+define Device/hiveton_h5s-te43
+  DEVICE_VENDOR := Hiveton
+  DEVICE_MODEL := H5S TE-43
+  DEVICE_DTS := mt7987a-hiveton-h5s-te43
+  DEVICE_DTS_DIR := ../dts
+  DEVICE_PACKAGES := kmod-hwmon-pwmfan kmod-i2c-core kmod-spi-dev kmod-usb3 \
+    kmod-sound-soc-te43-modem alsa-utils \
+    mt7987-2p5g-phy-firmware kmod-mt7996e kmod-mt7992-23-firmware \
+    kmod-usb-acm kmod-usb-serial-option kmod-usb-net-qmi-wwan \
+    kmod-usb-net-cdc-mbim kmod-usb-net-cdc-ncm kmod-usb-net-rndis \
+    kmod-mhi-pci-generic kmod-mhi-net kmod-mhi-wwan-ctrl kmod-mhi-wwan-mbim \
+    e2fsprogs f2fsck mkf2fs
+  KERNEL_LOADADDR := 0x40000000
+  IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
+endef
+TARGET_DEVICES += hiveton_h5s-te43

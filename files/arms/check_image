@@ -1,5 +1,6 @@
 	hiveton,h5000m|\
 	hiveton,h5s-te42|\
+	hiveton,h5s-te43|\
 	edgepi,e87n)
 		# tar magic `ustar`
 		magic="$(dd if="$1" bs=1 skip=257 count=5 2>/dev/null)"
